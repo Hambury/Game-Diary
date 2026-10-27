@@ -1059,6 +1059,7 @@
         renderGames();
     }
     function showAddGame() {
+        window.scrollTo(0, 0); // PWA fix: start at the top of the new page
         navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId});
         hideAllViews();
         document.getElementById('gameFormView').classList.remove('hidden');
@@ -1073,6 +1074,7 @@
         updateBreadcrumb();
     }
     function showGameEntry(gameId) {
+        window.scrollTo(0, 0); // PWA fix: start at the top of the new page
         if (currentView !== 'gameEntry' || currentGameId !== gameId) {
             navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId});
         }
