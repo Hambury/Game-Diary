@@ -627,6 +627,34 @@
     border-color: rgba(255,255,255,0.4);
     transform: translateY(-2px);
 }
+    /* PWA: in-app screenshot viewer */
+    #lightbox {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: rgba(0,0,0,0.92);
+        align-items: center;
+        justify-content: center;
+        cursor: zoom-out;
+    }
+    #lightbox img {
+        max-width: 96vw;
+        max-height: 96vh;
+        object-fit: contain;
+        border-radius: 6px;
+    }
+    #lightbox button {
+        position: absolute;
+        top: 12px;
+        right: 18px;
+        background: none;
+        border: none;
+        color: #fff;
+        font-size: 40px;
+        line-height: 1;
+        cursor: pointer;
+    }
 </style>
 </head>
 <body>
@@ -1324,7 +1352,22 @@
     }
     // Screenshot enlarge function
     function enlargeScreenshot(url) {
-        window.open(url, '_blank', 'noopener');
+        // PWA change: show the image in an in-app overlay instead of opening a new browser tab
+        let box = document.getElementById('lightbox');
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'lightbox';
+            box.innerHTML = '<img alt="Screenshot"><button type="button" aria-label="Close">&times;</button>';
+            box.addEventListener('click', closeLightbox);
+            document.body.appendChild(box);
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+        }
+        box.querySelector('img').src = url;
+        box.style.display = 'flex';
+    }
+    function closeLightbox() {
+        const box = document.getElementById('lightbox');
+        if (box) box.style.display = 'none';
     }
 
     // --- Game form ---
