@@ -1237,8 +1237,9 @@
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                const action = e.target.dataset.action;
-                const index = parseInt(e.target.dataset.index);
+                // currentTarget = the button itself, even if the click landed on the icon/label inside it
+                const action = e.currentTarget.dataset.action;
+                const index = parseInt(e.currentTarget.dataset.index);
                 if (action === 'change') {
                     changePlatformIcon(index);
                 } else if (action === 'remove') {
