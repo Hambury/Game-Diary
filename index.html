@@ -655,22 +655,6 @@
         line-height: 1;
         cursor: pointer;
     }
-    /* PWA: platform image shown top-right on platform and game pages */
-    #platformBadge {
-        display: none;
-        position: absolute;
-        top: 16px;
-        right: 20px;
-        max-width: 110px;
-        max-height: 80px;
-        object-fit: contain;
-        z-index: 50;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
-        pointer-events: none;
-    }
-    @media (max-width: 600px) {
-        #platformBadge { max-width: 64px; max-height: 48px; top: 10px; right: 10px; }
-    }
 </style>
 </head>
 <body>
@@ -1144,43 +1128,7 @@
             showPlatform(currentPlatform);
         }
     }
-    // PWA addition: show the current platform's console image in the top-right corner
-    let platformBadgeToken = 0;
-    let platformBadgeUrl = '';
-    async function updatePlatformBadge() {
-        const token = ++platformBadgeToken;
-        let badge = document.getElementById('platformBadge');
-        if (!badge) {
-            badge = document.createElement('img');
-            badge.id = 'platformBadge';
-            badge.alt = '';
-            document.body.appendChild(badge);
-        }
-        let platformName = '';
-        if (currentView === 'platform') {
-            platformName = currentPlatform;
-        } else if (currentView === 'gameEntry') {
-            const game = gameData.games.find(g => g.id === currentGameId);
-            platformName = game ? game.platform : currentPlatform;
-        }
-        const platform = platformName ? gameData.platforms.find(pl => pl.name === platformName) : null;
-        if (!platform || !platform.icon) { badge.style.display = 'none'; return; }
-        try {
-            const blob = await imageStorage.getBlob('platformIcons', platform.icon);
-            if (token !== platformBadgeToken) return; // a newer update has taken over
-            if (!blob) { badge.style.display = 'none'; return; }
-            if (platformBadgeUrl) URL.revokeObjectURL(platformBadgeUrl);
-            platformBadgeUrl = URL.createObjectURL(blob);
-            badge.src = platformBadgeUrl;
-            badge.alt = platform.name;
-            badge.title = platform.name;
-            badge.style.display = 'block';
-        } catch (e) {
-            badge.style.display = 'none';
-        }
-    }
     function updateBreadcrumb() {
-        updatePlatformBadge();
         const breadcrumbNav = document.getElementById('breadcrumbNav');
         const breadcrumbPlatform = document.getElementById('breadcrumbPlatform');
         const breadcrumbGame = document.getElementById('breadcrumbGame');
