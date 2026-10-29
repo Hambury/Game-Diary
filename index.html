@@ -735,6 +735,53 @@
     @media (max-width: 768px) {
         .banner-box { height: 120px; }
     }
+    /* Game page: box art + title screen, above the info bar and flush with its right edge */
+    .game-art-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-end;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+    .art-box {
+        position: relative;
+        height: 180px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .art-box.empty {
+        border: 2px dashed rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.7);
+        cursor: pointer;
+        font-size: 0.9em;
+        text-align: center;
+        padding: 0 8px;
+        transition: all 0.3s ease;
+    }
+    .art-box.empty:hover {
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.6);
+    }
+    .art-box-cover.empty { width: 130px; }
+    .art-box-title.empty { width: 240px; }
+    .art-box img {
+        height: 100%;
+        width: auto;
+        max-width: 360px;
+        object-fit: contain;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+    }
+    .art-box:hover .banner-controls { opacity: 1; }
+    @media (max-width: 768px) {
+        .art-box { height: 130px; }
+        .art-box-cover.empty { width: 95px; }
+        .art-box-title.empty { width: 175px; }
+        .art-box img { max-width: 220px; }
+    }
 </style>
 </head>
 <body>
@@ -1542,6 +1589,87 @@
             grid.appendChild(tile);
         }
     }
+    // --- Game page images: box art (left) and title screen (right), above the info bar ---
+    const gameArtUrls = { boxArt: '', titleScreen: '' };
+    const gameArtConfig = {
+        boxArt:      { elId: 'artBoxCover', label: 'game box' },
+        titleScreen: { elId: 'artBoxTitle', label: 'title screen' }
+    };
+    async function renderGameArt() {
+        const game = gameData.games.find(g => g.id === currentGameId);
+        if (!game) return;
+        for (const field of Object.keys(gameArtConfig)) {
+            const cfg = gameArtConfig[field];
+            const box = document.getElementById(cfg.elId);
+            if (!box) continue;
+            let blob = null;
+            if (game[field]) {
+                try { blob = await imageStorage.getBlob('platformIcons', game[field]); } catch (e) { blob = null; }
+            }
+            if (gameArtUrls[field]) { URL.revokeObjectURL(gameArtUrls[field]); gameArtUrls[field] = ''; }
+            box.innerHTML = '';
+            if (blob) {
+                gameArtUrls[field] = URL.createObjectURL(blob);
+                box.className = 'art-box art-box-' + (field === 'boxArt' ? 'cover' : 'title');
+                box.onclick = null;
+                const img = document.createElement('img');
+                img.src = gameArtUrls[field];
+                img.alt = game.name + ' ' + cfg.label;
+                img.onclick = () => enlargeScreenshot(gameArtUrls[field]);
+                img.style.cursor = 'zoom-in';
+                box.appendChild(img);
+                const controls = document.createElement('div');
+                controls.className = 'banner-controls';
+                const edit = document.createElement('button');
+                edit.type = 'button';
+                edit.textContent = '\u270E';
+                edit.title = 'Change ' + cfg.label;
+                edit.setAttribute('aria-label', 'Change ' + cfg.label);
+                edit.onclick = e => { e.stopPropagation(); changeGameArt(field); };
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.textContent = '\u2715';
+                del.title = 'Remove ' + cfg.label;
+                del.setAttribute('aria-label', 'Remove ' + cfg.label);
+                del.onclick = e => { e.stopPropagation(); removeGameArt(field); };
+                controls.appendChild(edit);
+                controls.appendChild(del);
+                box.appendChild(controls);
+            } else {
+                box.className = 'art-box art-box-' + (field === 'boxArt' ? 'cover' : 'title') + ' empty';
+                box.textContent = '\uFF0B Add ' + cfg.label;
+                box.onclick = () => changeGameArt(field);
+            }
+        }
+    }
+    function changeGameArt(field) {
+        const game = gameData.games.find(g => g.id === currentGameId);
+        if (!game) return;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                const id = await imageStorage.saveBlob('platformIcons', file);
+                game[field] = id;
+                if (saveData()) renderGameArt();
+            } catch (error) {
+                alert('Error uploading image: ' + error.message);
+            }
+        };
+        input.click();
+    }
+    function removeGameArt(field) {
+        const game = gameData.games.find(g => g.id === currentGameId);
+        if (!game) return;
+        if (confirm('Remove the ' + gameArtConfig[field].label + ' image for this game?')) {
+            game[field] = null;
+            saveData();
+            renderGameArt();
+        }
+    }
     async function renderGameEntry(gameId) {
         const game = gameData.games.find(g => g.id === gameId);
         if (!game) return;
@@ -1558,6 +1686,10 @@
         }
         content.innerHTML = `
             <h2>${game.name}</h2>
+            <div class="game-art-row">
+                <div class="art-box art-box-cover" id="artBoxCover"></div>
+                <div class="art-box art-box-title" id="artBoxTitle"></div>
+            </div>
             <div class="game-meta">
                 <div class="meta-item">
                     <span class="meta-label">Platform</span>
@@ -1579,6 +1711,7 @@
             <div class="diary-content">${game.diary || 'No diary entry yet.'}</div>
             ${screenshotsHtml}
         `;
+        renderGameArt();
     }
     // Screenshot enlarge function
     function enlargeScreenshot(url) {
@@ -1764,7 +1897,7 @@
         };
         if (editingGameId) {
             const gameIndex = gameData.games.findIndex(g => g.id === editingGameId);
-            gameData.games[gameIndex] = formData;
+            gameData.games[gameIndex] = { ...gameData.games[gameIndex], ...formData }; // keep box art / title screen
         } else {
             gameData.games.push(formData);
         }
