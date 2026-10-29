@@ -782,6 +782,23 @@
         .art-box-title.empty { width: 175px; }
         .art-box img { max-width: 220px; }
     }
+    /* Left cell of the game page image row holds search + back */
+    .game-art-left {
+        flex: 1;
+        min-width: 0;
+        align-self: center;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .game-art-left .search-container { margin: 0; width: 100%; max-width: 300px; }
+    .game-art-left .search-input { width: 100%; box-sizing: border-box; }
+    .game-art-left #backBtn { margin: 0; }
+    @media (max-width: 768px) {
+        .game-art-row { flex-wrap: wrap; }
+        .game-art-left { flex: 1 1 100%; align-items: stretch; }
+    }
 </style>
 </head>
 <body>
@@ -1473,32 +1490,48 @@
         }
     }
     window.addEventListener('resize', layoutPlatformBanner);
-    // On platform pages, search / back / sort sit beside the logo; elsewhere they go back to their usual places
-    (function setupPlatformControls() {
+    // Search / back / sort move beside the images: next to the logo on platform pages,
+    // next to the box art + title screen on game pages. Elsewhere they sit in their usual places.
+    (function setupControls() {
         const platformView = document.getElementById('platformView');
-        const left = document.getElementById('bannerLeft');
+        const gameView = document.getElementById('gameEntryView');
         const items = [
             document.querySelector('.search-container'),
             document.getElementById('backBtn'),
             document.getElementById('sortBar')
         ];
         const markers = items.map(el => { const m = document.createComment('slot'); el.parentNode.insertBefore(m, el); return m; });
-        let inBanner = false;
+        let currentTarget = null;
+        function restore() {
+            items.forEach((el, i) => markers[i].parentNode.insertBefore(el, markers[i].nextSibling));
+            currentTarget = null;
+        }
         function sync() {
-            const want = !platformView.classList.contains('hidden');
-            if (want === inBanner) return;
+            let target = null, list = [];
+            if (!platformView.classList.contains('hidden')) {
+                target = document.getElementById('bannerLeft');
+                list = items;
+            } else if (!gameView.classList.contains('hidden')) {
+                target = document.getElementById('gameArtLeft');
+                list = items.slice(0, 2);
+            }
+            if (target === currentTarget && (!target || list.every(el => el.parentNode === target))) return;
             const input = document.getElementById('searchInput');
             const hadFocus = document.activeElement === input;
             const selStart = input.selectionStart, selEnd = input.selectionEnd;
-            items.forEach((el, i) => {
-                if (want) left.appendChild(el);
-                else markers[i].parentNode.insertBefore(el, markers[i].nextSibling);
-            });
-            inBanner = want;
+            restore();
+            if (target) {
+                list.forEach(el => target.appendChild(el));
+                currentTarget = target;
+            }
             if (hadFocus) { input.focus(); try { input.setSelectionRange(selStart, selEnd); } catch (e) {} }
             layoutPlatformBanner();
         }
-        new MutationObserver(sync).observe(platformView, { attributes: true, attributeFilter: ['class'] });
+        window.syncControls = sync;
+        window.restoreControls = restore;
+        const obs = new MutationObserver(sync);
+        obs.observe(platformView, { attributes: true, attributeFilter: ['class'] });
+        obs.observe(gameView, { attributes: true, attributeFilter: ['class'] });
         sync();
     })();
     async function changeBannerImage(kind) {
@@ -1684,9 +1717,11 @@
             }
             screenshotsHtml += '</div>';
         }
+        if (window.restoreControls) restoreControls(); // don't let the controls be wiped with the old content
         content.innerHTML = `
             <h2>${game.name}</h2>
             <div class="game-art-row">
+                <div class="game-art-left" id="gameArtLeft"></div>
                 <div class="art-box art-box-cover" id="artBoxCover"></div>
                 <div class="art-box art-box-title" id="artBoxTitle"></div>
             </div>
@@ -1711,6 +1746,7 @@
             <div class="diary-content">${game.diary || 'No diary entry yet.'}</div>
             ${screenshotsHtml}
         `;
+        if (window.syncControls) syncControls();
         renderGameArt();
     }
     // Screenshot enlarge function
