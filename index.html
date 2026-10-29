@@ -717,6 +717,24 @@
         .platform-banner { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; }
         .banner-box { height: 100px; }
     }
+    /* Left cell of the platform banner holds search, back and sort on platform pages */
+    .platform-banner { align-items: center; }
+    .banner-left {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: stretch;
+        gap: 6px;
+        min-width: 0;
+    }
+    .banner-left .search-container { margin: 0; }
+    .banner-left .search-input { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 15px; }
+    .banner-left #backBtn { margin: 0; padding: 6px 14px; align-self: flex-start; }
+    .banner-left .sort-bar { margin: 0; gap: 8px; flex-wrap: nowrap; }
+    .banner-left .sort-select { padding: 4px 8px; min-width: 0; flex: 1; }
+    @media (max-width: 768px) {
+        .banner-box { height: 120px; }
+    }
 </style>
 </head>
 <body>
@@ -766,6 +784,7 @@
     </select>
 </div>
 <div class="platform-banner" id="platformBanner">
+<div class="banner-left" id="bannerLeft"></div>
 <div class="banner-box" id="bannerLogo"></div>
 <div class="banner-box" id="bannerConsole"></div>
 </div>
@@ -1333,8 +1352,11 @@
     async function renderPlatformBanner() {
         const platform = gameData.platforms.find(p => p.name === currentPlatform);
         const banner = document.getElementById('platformBanner');
-        if (!platform) { banner.style.display = 'none'; return; }
-        banner.style.display = '';
+        const isSearch = document.getElementById('platformTitle').textContent.startsWith('Search Results');
+        const showBoxes = !!platform && !isSearch;
+        document.getElementById('bannerLogo').style.display = showBoxes ? '' : 'none';
+        document.getElementById('bannerConsole').style.display = showBoxes ? '' : 'none';
+        if (!showBoxes) { layoutPlatformBanner(); return; }
         for (const kind of Object.keys(bannerConfig)) {
             const cfg = bannerConfig[kind];
             const box = document.getElementById(cfg.elId);
@@ -1382,20 +1404,56 @@
     function layoutPlatformBanner() {
         const banner = document.getElementById('platformBanner');
         if (!banner || banner.offsetWidth === 0) return;
-        const cols = getComputedStyle(banner).gridTemplateColumns.split(' ').filter(Boolean).length;
+        const left = document.getElementById('bannerLeft');
         const logo = document.getElementById('bannerLogo');
         const consoleBox = document.getElementById('bannerConsole');
-        if (cols >= 4) {
-            const start = Math.floor((cols - 3) / 2) + 1;
-            logo.style.gridArea = '1 / ' + start + ' / auto / span 3';
+        // Clear earlier placements first, otherwise a stale placement can add an extra column to the count
+        left.style.gridArea = logo.style.gridArea = consoleBox.style.gridArea = '';
+        const cols = getComputedStyle(banner).gridTemplateColumns.split(' ').filter(Boolean).length;
+        if (cols >= 3) {
+            // Controls in the first column, console image over the last column, logo over the columns between
+            const avail = cols - 2;
+            const span = Math.min(3, avail);
+            const start = 2 + Math.floor((avail - span) / 2);
+            left.style.gridArea = '1 / 1 / auto / span 1';
+            logo.style.gridArea = '1 / ' + start + ' / auto / span ' + span;
             consoleBox.style.gridArea = '1 / ' + cols + ' / auto / span 1';
         } else {
-            // Too narrow for side-by-side: logo across the top, console in the right-most column below it
-            logo.style.gridArea = '1 / 1 / auto / -1';
-            consoleBox.style.gridArea = '2 / ' + cols + ' / auto / span 1';
+            // Too narrow for side-by-side: controls, then logo, then console image on separate rows
+            left.style.gridArea = '1 / 1 / auto / -1';
+            logo.style.gridArea = '2 / 1 / auto / -1';
+            consoleBox.style.gridArea = '3 / ' + cols + ' / auto / span 1';
         }
     }
     window.addEventListener('resize', layoutPlatformBanner);
+    // On platform pages, search / back / sort sit beside the logo; elsewhere they go back to their usual places
+    (function setupPlatformControls() {
+        const platformView = document.getElementById('platformView');
+        const left = document.getElementById('bannerLeft');
+        const items = [
+            document.querySelector('.search-container'),
+            document.getElementById('backBtn'),
+            document.getElementById('sortBar')
+        ];
+        const markers = items.map(el => { const m = document.createComment('slot'); el.parentNode.insertBefore(m, el); return m; });
+        let inBanner = false;
+        function sync() {
+            const want = !platformView.classList.contains('hidden');
+            if (want === inBanner) return;
+            const input = document.getElementById('searchInput');
+            const hadFocus = document.activeElement === input;
+            const selStart = input.selectionStart, selEnd = input.selectionEnd;
+            items.forEach((el, i) => {
+                if (want) left.appendChild(el);
+                else markers[i].parentNode.insertBefore(el, markers[i].nextSibling);
+            });
+            inBanner = want;
+            if (hadFocus) { input.focus(); try { input.setSelectionRange(selStart, selEnd); } catch (e) {} }
+            layoutPlatformBanner();
+        }
+        new MutationObserver(sync).observe(platformView, { attributes: true, attributeFilter: ['class'] });
+        sync();
+    })();
     async function changeBannerImage(kind) {
         const cfg = bannerConfig[kind];
         const platform = gameData.platforms.find(p => p.name === currentPlatform);
@@ -1823,6 +1881,7 @@
         document.getElementById('platformView').classList.remove('hidden');
         document.getElementById('backBtn').style.display = 'inline-block';
         document.getElementById('platformTitle').textContent = `Search Results for "${query}"`;
+        renderPlatformBanner();
         document.getElementById('sortBar').style.display = 'flex';
         currentView = 'platform';
 
