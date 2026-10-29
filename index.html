@@ -655,6 +655,68 @@
         line-height: 1;
         cursor: pointer;
     }
+    /* Platform banner: logo above the middle tiles, console image above the right-most tile */
+    .platform-banner {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+    .banner-box {
+        position: relative;
+        height: 130px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .banner-box.empty {
+        border: 2px dashed rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.7);
+        cursor: pointer;
+        font-size: 0.95em;
+        text-align: center;
+        padding: 0 10px;
+        transition: all 0.3s ease;
+    }
+    .banner-box.empty:hover {
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.6);
+    }
+    .banner-box img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+    }
+    .banner-controls {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: flex;
+        gap: 6px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    .banner-box:hover .banner-controls { opacity: 1; }
+    @media (hover: none) { .banner-controls { opacity: 1; } }
+    .banner-controls button {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(0,0,0,0.65);
+        color: #fff;
+        font-size: 15px;
+        cursor: pointer;
+    }
+    .banner-controls button:hover { background: rgba(0,0,0,0.9); }
+    @media (max-width: 768px) {
+        .platform-banner { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; }
+        .banner-box { height: 100px; }
+    }
 </style>
 </head>
 <body>
@@ -702,6 +764,10 @@
         <option value="year">Year (Newest)</option>
         <option value="yearAsc">Year (Oldest)</option>
     </select>
+</div>
+<div class="platform-banner" id="platformBanner">
+<div class="banner-box" id="bannerLogo"></div>
+<div class="banner-box" id="bannerConsole"></div>
 </div>
 <div class="games-grid" id="gamesGrid"></div>
 </div>
@@ -1258,7 +1324,110 @@
         }
         return '';
     }
+    // --- Platform banner (logo + console image) ---
+    const bannerUrls = { logo: '', console: '' };
+    const bannerConfig = {
+        logo:    { elId: 'bannerLogo',    field: 'logo',         label: 'logo' },
+        console: { elId: 'bannerConsole', field: 'consoleImage', label: 'console image' }
+    };
+    async function renderPlatformBanner() {
+        const platform = gameData.platforms.find(p => p.name === currentPlatform);
+        const banner = document.getElementById('platformBanner');
+        if (!platform) { banner.style.display = 'none'; return; }
+        banner.style.display = '';
+        for (const kind of Object.keys(bannerConfig)) {
+            const cfg = bannerConfig[kind];
+            const box = document.getElementById(cfg.elId);
+            const imageId = platform[cfg.field];
+            let blob = null;
+            if (imageId) {
+                try { blob = await imageStorage.getBlob('platformIcons', imageId); } catch (e) { blob = null; }
+            }
+            box.innerHTML = '';
+            if (bannerUrls[kind]) { URL.revokeObjectURL(bannerUrls[kind]); bannerUrls[kind] = ''; }
+            if (blob) {
+                bannerUrls[kind] = URL.createObjectURL(blob);
+                box.className = 'banner-box';
+                box.onclick = null;
+                const img = document.createElement('img');
+                img.src = bannerUrls[kind];
+                img.alt = platform.name + ' ' + cfg.label;
+                box.appendChild(img);
+                const controls = document.createElement('div');
+                controls.className = 'banner-controls';
+                const edit = document.createElement('button');
+                edit.type = 'button';
+                edit.textContent = '\u270E';
+                edit.title = 'Change ' + cfg.label;
+                edit.setAttribute('aria-label', 'Change ' + cfg.label);
+                edit.onclick = e => { e.stopPropagation(); changeBannerImage(kind); };
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.textContent = '\u2715';
+                del.title = 'Remove ' + cfg.label;
+                del.setAttribute('aria-label', 'Remove ' + cfg.label);
+                del.onclick = e => { e.stopPropagation(); removeBannerImage(kind); };
+                controls.appendChild(edit);
+                controls.appendChild(del);
+                box.appendChild(controls);
+            } else {
+                box.className = 'banner-box empty';
+                box.textContent = '\uFF0B Add ' + cfg.label;
+                box.onclick = () => changeBannerImage(kind);
+            }
+        }
+        layoutPlatformBanner();
+    }
+    // Line the banner up with the game tile columns: logo over the middle tiles, console over the right-most tile
+    function layoutPlatformBanner() {
+        const banner = document.getElementById('platformBanner');
+        if (!banner || banner.offsetWidth === 0) return;
+        const cols = getComputedStyle(banner).gridTemplateColumns.split(' ').filter(Boolean).length;
+        const logo = document.getElementById('bannerLogo');
+        const consoleBox = document.getElementById('bannerConsole');
+        if (cols >= 4) {
+            const start = Math.floor((cols - 3) / 2) + 1;
+            logo.style.gridArea = '1 / ' + start + ' / auto / span 3';
+            consoleBox.style.gridArea = '1 / ' + cols + ' / auto / span 1';
+        } else {
+            // Too narrow for side-by-side: logo across the top, console in the right-most column below it
+            logo.style.gridArea = '1 / 1 / auto / -1';
+            consoleBox.style.gridArea = '2 / ' + cols + ' / auto / span 1';
+        }
+    }
+    window.addEventListener('resize', layoutPlatformBanner);
+    async function changeBannerImage(kind) {
+        const cfg = bannerConfig[kind];
+        const platform = gameData.platforms.find(p => p.name === currentPlatform);
+        if (!platform) return;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                const id = await imageStorage.saveBlob('platformIcons', file);
+                platform[cfg.field] = id;
+                if (saveData()) renderPlatformBanner();
+            } catch (error) {
+                alert('Error uploading image: ' + error.message);
+            }
+        };
+        input.click();
+    }
+    function removeBannerImage(kind) {
+        const cfg = bannerConfig[kind];
+        const platform = gameData.platforms.find(p => p.name === currentPlatform);
+        if (!platform) return;
+        if (confirm('Remove the ' + cfg.label + ' for this platform?')) {
+            platform[cfg.field] = null;
+            saveData();
+            renderPlatformBanner();
+        }
+    }
     async function renderGames() {
+        renderPlatformBanner();
         const grid = document.getElementById('gamesGrid');
         grid.innerHTML = '';
         let platformGames = gameData.games.filter(game => game.platform === currentPlatform);
