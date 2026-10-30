@@ -776,6 +776,7 @@
         filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
     }
     .art-box:hover .banner-controls { opacity: 1; }
+    .art-box.drag-over { outline: 3px dashed #fff; outline-offset: -3px; background: rgba(255,255,255,0.25); }
     @media (max-width: 768px) {
         .art-box { height: 130px; }
         .art-box-cover.empty { width: 95px; }
@@ -799,6 +800,26 @@
         .game-art-row { flex-wrap: wrap; }
         .game-art-left { flex: 1 1 100%; align-items: stretch; }
     }
+    /* Floating Back button: appears once the real one has scrolled out of view */
+    #floatingBack {
+        position: fixed;
+        top: calc(12px + env(safe-area-inset-top, 0px));
+        left: 12px;
+        z-index: 900;
+        padding: 8px 16px;
+        background: rgba(30, 60, 114, 0.95);
+        border: 2px solid rgba(255,255,255,0.35);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+    #floatingBack.show { opacity: 1; pointer-events: auto; }
+    #floatingBack:hover { background: rgba(50, 90, 160, 0.98); border-color: rgba(255,255,255,0.6); }
 </style>
 </head>
 <body>
@@ -1194,7 +1215,7 @@
     }
     function showPlatform(platformName) {
         if (currentView !== 'platform' || currentPlatform !== platformName) {
-            navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId});
+            navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId, scrollY: window.scrollY});
         }
         hideAllViews();
         document.getElementById('platformView').classList.remove('hidden');
@@ -1208,8 +1229,9 @@
         renderGames();
     }
     function showAddGame() {
+        const prevScrollY = window.scrollY;
         window.scrollTo(0, 0); // PWA fix: start at the top of the new page
-        navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId});
+        navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId, scrollY: prevScrollY});
         hideAllViews();
         document.getElementById('gameFormView').classList.remove('hidden');
         document.getElementById('backBtn').style.display = 'inline-block';
@@ -1223,9 +1245,10 @@
         updateBreadcrumb();
     }
     function showGameEntry(gameId) {
+        const prevScrollY = window.scrollY;
         window.scrollTo(0, 0); // PWA fix: start at the top of the new page
         if (currentView !== 'gameEntry' || currentGameId !== gameId) {
-            navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId});
+            navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId, scrollY: prevScrollY});
         }
         hideAllViews();
         document.getElementById('gameEntryView').classList.remove('hidden');
@@ -1251,6 +1274,7 @@
                 currentPlatform = previous.platform;
                 currentGameId = null;
                 updateBreadcrumb();
+                pendingScroll = previous.scrollY || 0; // renderGames scrolls back here once enough tiles exist
                 renderGames();
             } else if (previous.view === 'gameEntry' && previous.gameId) {
                 hideAllViews();
@@ -1261,7 +1285,8 @@
                 currentPlatform = previous.platform;
                 currentGameId = previous.gameId;
                 updateBreadcrumb();
-                renderGameEntry(previous.gameId);
+                const backY = previous.scrollY || 0;
+                Promise.resolve(renderGameEntry(previous.gameId)).then(() => window.scrollTo(0, backY));
             }
         } else {
             if (currentPlatform) {
@@ -1564,6 +1589,14 @@
             renderPlatformBanner();
         }
     }
+    let pendingScroll = null;
+    function applyPendingScroll(force) {
+        if (pendingScroll === null) return;
+        if (force || document.documentElement.scrollHeight >= pendingScroll + window.innerHeight) {
+            window.scrollTo(0, pendingScroll);
+            pendingScroll = null;
+        }
+    }
     async function renderGames() {
         renderPlatformBanner();
         const grid = document.getElementById('gamesGrid');
@@ -1597,6 +1630,7 @@
 
         if (platformGames.length === 0) {
             grid.innerHTML = '<div style="color:#fff;text-align:center;font-size:1.2em;grid-column:1/-1;">No games found.</div>';
+            applyPendingScroll(true);
             return;
         }
 
@@ -1620,8 +1654,30 @@
                 </div>
             `;
             grid.appendChild(tile);
+            applyPendingScroll(false);
         }
+        applyPendingScroll(true);
     }
+    // --- Floating Back button ---
+    (function setupFloatingBack() {
+        const real = document.getElementById('backBtn');
+        const floating = document.createElement('button');
+        floating.id = 'floatingBack';
+        floating.type = 'button';
+        floating.textContent = '\u2190 Back';
+        floating.setAttribute('aria-label', 'Back');
+        floating.onclick = () => real.click();
+        document.body.appendChild(floating);
+        function update() {
+            const shown = real.offsetParent !== null; // false while the real button is hidden (home page)
+            const scrolledPast = shown && real.getBoundingClientRect().bottom < 0;
+            floating.classList.toggle('show', scrolledPast);
+        }
+        window.addEventListener('scroll', update, { passive: true });
+        window.addEventListener('resize', update);
+        new MutationObserver(update).observe(real, { attributes: true, attributeFilter: ['style'] });
+        update();
+    })();
     // --- Game page images: box art (left) and title screen (right), above the info bar ---
     const gameArtUrls = { boxArt: '', titleScreen: '' };
     const gameArtConfig = {
@@ -1635,6 +1691,7 @@
             const cfg = gameArtConfig[field];
             const box = document.getElementById(cfg.elId);
             if (!box) continue;
+            enableGameArtDrop(box, field);
             let blob = null;
             if (game[field]) {
                 try { blob = await imageStorage.getBlob('platformIcons', game[field]); } catch (e) { blob = null; }
@@ -1675,25 +1732,52 @@
             }
         }
     }
-    function changeGameArt(field) {
+    async function uploadGameArt(field, file) {
         const game = gameData.games.find(g => g.id === currentGameId);
-        if (!game) return;
+        if (!game || !file) return;
+        try {
+            const id = await imageStorage.saveBlob('platformIcons', file);
+            game[field] = id;
+            if (saveData()) renderGameArt();
+        } catch (error) {
+            alert('Error uploading image: ' + error.message);
+        }
+    }
+    function changeGameArt(field) {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
-        input.onchange = async function(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            try {
-                const id = await imageStorage.saveBlob('platformIcons', file);
-                game[field] = id;
-                if (saveData()) renderGameArt();
-            } catch (error) {
-                alert('Error uploading image: ' + error.message);
-            }
-        };
+        input.onchange = event => uploadGameArt(field, event.target.files[0]);
         input.click();
     }
+    // Drag an image file onto a box to upload it
+    function dragHasFiles(e) {
+        return !!(e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files'));
+    }
+    function enableGameArtDrop(box, field) {
+        box.ondragenter = box.ondragover = e => {
+            if (!dragHasFiles(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            box.classList.add('drag-over');
+        };
+        box.ondragleave = e => {
+            if (!box.contains(e.relatedTarget)) box.classList.remove('drag-over');
+        };
+        box.ondrop = e => {
+            if (!dragHasFiles(e)) return;
+            e.preventDefault();
+            box.classList.remove('drag-over');
+            const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+            if (file) uploadGameArt(field, file);
+            else alert('Please drop an image file.');
+        };
+    }
+    // Stop a file dropped outside a box from navigating the app away to the image
+    document.addEventListener('dragover', e => {
+        if (dragHasFiles(e) && !e.target.closest('.art-box')) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; }
+    });
+    document.addEventListener('drop', e => { if (dragHasFiles(e)) e.preventDefault(); });
     function removeGameArt(field) {
         const game = gameData.games.find(g => g.id === currentGameId);
         if (!game) return;
@@ -1947,7 +2031,8 @@
     async function editCurrentGame() {
         const game = gameData.games.find(g => g.id === currentGameId);
         if (!game) return;
-        navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId});
+        navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId, scrollY: window.scrollY});
+        window.scrollTo(0, 0);
         hideAllViews();
         document.getElementById('gameFormView').classList.remove('hidden');
         document.getElementById('backBtn').style.display = 'inline-block';
