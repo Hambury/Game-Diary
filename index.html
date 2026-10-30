@@ -820,6 +820,86 @@
     }
     #floatingBack.show { opacity: 1; pointer-events: auto; }
     #floatingBack:hover { background: rgba(50, 90, 160, 0.98); border-color: rgba(255,255,255,0.6); }
+    /* Game box spine: narrow box between the game box and title screen */
+    .art-box-spine.empty { width: 56px; padding: 0; writing-mode: vertical-rl; }
+    .art-box-spine img { max-width: 110px; }
+    @media (max-width: 768px) {
+        .art-box-spine.empty { width: 42px; }
+        .art-box-spine img { max-width: 80px; }
+    }
+    /* View modes */
+    .games-grid.mode-boxOnly, .games-grid.mode-titleOnly { align-items: end; }
+    .game-tile-image.box-art { height: 230px; background-size: contain; background-repeat: no-repeat; }
+    .art-tile {
+        cursor: pointer;
+        transition: transform 0.2s ease;
+        border-radius: 6px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+    }
+    .art-tile:hover { transform: translateY(-5px); }
+    .art-tile img {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 300px;
+        object-fit: contain;
+        object-position: bottom;
+        filter: drop-shadow(0 3px 5px rgba(0,0,0,0.45));
+    }
+    .art-tile.completed { box-shadow: 0 0 10px rgba(255,215,0,0.7); }
+    .art-tile.empty {
+        align-items: center;
+        text-align: center;
+        padding: 10px;
+        border: 2px dashed rgba(255,255,255,0.25);
+        background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.65);
+        font-size: 0.9em;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .art-tile.empty.portrait { height: 200px; }
+    .art-tile.empty.landscape { height: 150px; }
+    /* Game box spines lined up like a shelf */
+    .games-grid.mode-spineOnly {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 16px 4px;
+        padding-bottom: 16px;
+        background-image: linear-gradient(to bottom, transparent 200px, #9a7650 200px, #7a5a3a 203px, #4a3322 203px, #3a281a 216px);
+        background-size: 100% 216px;
+        background-repeat: repeat-y;
+    }
+    .spine-item {
+        height: 200px;
+        cursor: pointer;
+        display: flex;
+        transition: transform 0.2s ease;
+    }
+    .spine-item:hover { transform: translateY(-8px); }
+    .spine-item img { display: block; height: 100%; width: auto; }
+    .spine-item.completed { outline: 2px solid #ffd700; outline-offset: -2px; }
+    .spine-item.empty {
+        width: 34px;
+        box-sizing: border-box;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 8px 0;
+        background: rgba(0,0,0,0.4);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 3px;
+        color: rgba(255,255,255,0.75);
+        font-size: 12px;
+        writing-mode: vertical-rl;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+    .banner-left .sort-label { min-width: 62px; }
+    .games-grid.mode-spineOnly > div[style*="grid-column"] { flex-basis: 100%; }
 </style>
 </head>
 <body>
@@ -866,6 +946,17 @@
         <option value="status">Status</option>
         <option value="year">Year (Newest)</option>
         <option value="yearAsc">Year (Oldest)</option>
+    </select>
+</div>
+<div class="sort-bar" id="viewBar">
+    <span class="sort-label">View:</span>
+    <select class="sort-select" id="viewModeSelect">
+        <option value="screenshot">Screenshot + Details</option>
+        <option value="boxDetails">Game Box + Details</option>
+        <option value="titleDetails">Title Screen + Details</option>
+        <option value="boxOnly">Game Box</option>
+        <option value="titleOnly">Title Screen</option>
+        <option value="spineOnly">Game Box Spine</option>
     </select>
 </div>
 <div class="platform-banner" id="platformBanner">
@@ -1167,7 +1258,7 @@
         const sortSelect = document.getElementById('sortSelect');
         sortSelect.addEventListener('change', function() {
             currentSort = sortSelect.value;
-            renderGames();
+            refreshGameList();
         });
     }
 
@@ -1523,7 +1614,8 @@
         const items = [
             document.querySelector('.search-container'),
             document.getElementById('backBtn'),
-            document.getElementById('sortBar')
+            document.getElementById('sortBar'),
+            document.getElementById('viewBar')
         ];
         const markers = items.map(el => { const m = document.createComment('slot'); el.parentNode.insertBefore(m, el); return m; });
         let currentTarget = null;
@@ -1589,6 +1681,98 @@
             renderPlatformBanner();
         }
     }
+    // --- View modes for the game list ---
+    const TILE_MODES = ['screenshot', 'boxDetails', 'titleDetails', 'boxOnly', 'titleOnly', 'spineOnly'];
+    let currentTileMode = 'screenshot';
+    try {
+        const saved = localStorage.getItem('gameDiaryTileMode');
+        if (TILE_MODES.includes(saved)) currentTileMode = saved;
+    } catch (e) {}
+    (function setupViewMode() {
+        const select = document.getElementById('viewModeSelect');
+        select.value = currentTileMode;
+        select.addEventListener('change', () => {
+            currentTileMode = select.value;
+            try { localStorage.setItem('gameDiaryTileMode', currentTileMode); } catch (e) {}
+            refreshGameList();
+        });
+    })();
+    function refreshGameList() {
+        const isSearch = document.getElementById('platformTitle').textContent.startsWith('Search Results');
+        if (isSearch && document.getElementById('searchInput').value) performSearch();
+        else renderGames();
+    }
+    let tileUrls = [];
+    function resetTileUrls() { tileUrls.forEach(u => URL.revokeObjectURL(u)); tileUrls = []; }
+    async function tileImageUrl(game, field) {
+        // field: 'screenshot' (main screenshot) or a game field holding a stored image id
+        try {
+            let blob = null;
+            if (field === 'screenshot') {
+                if (game.screenshots && game.screenshots.length > 0) {
+                    blob = await imageStorage.getBlob('screenshots', game.screenshots[game.mainImageIndex || 0]);
+                }
+            } else if (game[field]) {
+                blob = await imageStorage.getBlob('platformIcons', game[field]);
+            }
+            if (!blob) return '';
+            const url = URL.createObjectURL(blob);
+            tileUrls.push(url);
+            return url;
+        } catch (e) { return ''; }
+    }
+    // Builds one entry in the games list, in whichever view mode is selected
+    async function buildGameTile(game, withPlatform) {
+        const mode = currentTileMode;
+        const completed = game.status === 'Completed' || game.status === 'Complete';
+        const imageField = { screenshot: 'screenshot', boxDetails: 'boxArt', titleDetails: 'titleScreen',
+                             boxOnly: 'boxArt', titleOnly: 'titleScreen', spineOnly: 'boxSpine' }[mode];
+        const url = await tileImageUrl(game, imageField);
+        const tile = document.createElement('div');
+        tile.onclick = () => showGameEntry(game.id);
+        tile.title = game.name;
+        if (mode === 'spineOnly') {
+            tile.className = 'spine-item' + (url ? '' : ' empty') + (completed ? ' completed' : '');
+            if (url) {
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = game.name;
+                tile.appendChild(img);
+            } else {
+                tile.textContent = game.name;
+            }
+            return tile;
+        }
+        if (mode === 'boxOnly' || mode === 'titleOnly') {
+            tile.className = 'art-tile' + (url ? '' : ' empty') + (completed ? ' completed' : '');
+            if (url) {
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = game.name;
+                tile.appendChild(img);
+            } else {
+                tile.textContent = game.name;
+                tile.classList.add(mode === 'boxOnly' ? 'portrait' : 'landscape');
+            }
+            return tile;
+        }
+        // Details modes: same tile as before; the picture depends on the mode
+        tile.className = 'game-tile' + (completed ? ' completed' : '');
+        const imageClass = mode === 'boxDetails' ? ' box-art' : '';
+        const imageStyle = url ? `style="background-image: url(${url})"` : '';
+        const statusText = withPlatform ? `${game.status} - ${game.platform}` : game.status;
+        tile.innerHTML = `
+            <div class="game-tile-image${imageClass}" ${imageStyle}>
+                ${!url ? 'No Image' : ''}
+            </div>
+            <div class="game-tile-info">
+                <div class="game-tile-title">${game.name}</div>
+                <div class="game-tile-status">${statusText}</div>
+                <div class="rating">${'\u2605'.repeat(game.rating)}${'\u2606'.repeat(5 - game.rating)}</div>
+            </div>
+        `;
+        return tile;
+    }
     let pendingScroll = null;
     function applyPendingScroll(force) {
         if (pendingScroll === null) return;
@@ -1600,6 +1784,8 @@
     async function renderGames() {
         renderPlatformBanner();
         const grid = document.getElementById('gamesGrid');
+        resetTileUrls();
+        grid.className = 'games-grid mode-' + currentTileMode;
         grid.innerHTML = '';
         let platformGames = gameData.games.filter(game => game.platform === currentPlatform);
 
@@ -1635,24 +1821,7 @@
         }
 
         for (const game of platformGames) {
-            const tile = document.createElement('div');
-            tile.className = 'game-tile';
-            if (game.status === 'Completed' || game.status === 'Complete') {
-                tile.classList.add('completed');
-            }
-            tile.onclick = () => showGameEntry(game.id);
-            const imageUrl = await getGameTileImage(game);
-            const imageStyle = imageUrl ? `background-image: url(${imageUrl})` : '';
-            tile.innerHTML = `
-                <div class="game-tile-image" ${imageStyle ? `style="${imageStyle}"` : ''}>
-                    ${!imageUrl ? 'No Image' : ''}
-                </div>
-                <div class="game-tile-info">
-                    <div class="game-tile-title">${game.name}</div>
-                    <div class="game-tile-status">${game.status}</div>
-                    <div class="rating">${'★'.repeat(game.rating)}${'☆'.repeat(5-game.rating)}</div>
-                </div>
-            `;
+            const tile = await buildGameTile(game, false);
             grid.appendChild(tile);
             applyPendingScroll(false);
         }
@@ -1681,8 +1850,9 @@
     // --- Game page images: box art (left) and title screen (right), above the info bar ---
     const gameArtUrls = { boxArt: '', titleScreen: '' };
     const gameArtConfig = {
-        boxArt:      { elId: 'artBoxCover', label: 'game box' },
-        titleScreen: { elId: 'artBoxTitle', label: 'title screen' }
+        boxArt:      { elId: 'artBoxCover', label: 'game box', cls: 'cover', emptyText: '\uFF0B Add game box' },
+        boxSpine:    { elId: 'artBoxSpine', label: 'game box spine', cls: 'spine', emptyText: '\uFF0B Add spine' },
+        titleScreen: { elId: 'artBoxTitle', label: 'title screen', cls: 'title', emptyText: '\uFF0B Add title screen' }
     };
     async function renderGameArt() {
         const game = gameData.games.find(g => g.id === currentGameId);
@@ -1700,7 +1870,7 @@
             box.innerHTML = '';
             if (blob) {
                 gameArtUrls[field] = URL.createObjectURL(blob);
-                box.className = 'art-box art-box-' + (field === 'boxArt' ? 'cover' : 'title');
+                box.className = 'art-box art-box-' + cfg.cls;
                 box.onclick = null;
                 const img = document.createElement('img');
                 img.src = gameArtUrls[field];
@@ -1726,8 +1896,8 @@
                 controls.appendChild(del);
                 box.appendChild(controls);
             } else {
-                box.className = 'art-box art-box-' + (field === 'boxArt' ? 'cover' : 'title') + ' empty';
-                box.textContent = '\uFF0B Add ' + cfg.label;
+                box.className = 'art-box art-box-' + cfg.cls + ' empty';
+                box.textContent = cfg.emptyText;
                 box.onclick = () => changeGameArt(field);
             }
         }
@@ -1807,6 +1977,7 @@
             <div class="game-art-row">
                 <div class="game-art-left" id="gameArtLeft"></div>
                 <div class="art-box art-box-cover" id="artBoxCover"></div>
+                <div class="art-box art-box-spine" id="artBoxSpine"></div>
                 <div class="art-box art-box-title" id="artBoxTitle"></div>
             </div>
             <div class="game-meta">
@@ -2172,30 +2343,15 @@
 
         // Render filtered games
         const grid = document.getElementById('gamesGrid');
+        resetTileUrls();
+        grid.className = 'games-grid mode-' + currentTileMode;
         grid.innerHTML = '';
         if (filteredGames.length === 0) {
             grid.innerHTML = '<div style="color:#fff;text-align:center;font-size:1.2em;grid-column:1/-1;">No games found.</div>';
             return;
         }
         for (const game of filteredGames) {
-            const tile = document.createElement('div');
-            tile.className = 'game-tile';
-            if (game.status === 'Completed' || game.status === 'Complete') {
-                tile.classList.add('completed');
-            }
-            tile.onclick = () => showGameEntry(game.id);
-            const imageUrl = await getGameTileImage(game);
-            const imageStyle = imageUrl ? `background-image: url(${imageUrl})` : '';
-            tile.innerHTML = `
-                <div class="game-tile-image" ${imageStyle ? `style="${imageStyle}"` : ''}>
-                    ${!imageUrl ? 'No Image' : ''}
-                </div>
-                <div class="game-tile-info">
-                    <div class="game-tile-title">${game.name}</div>
-                    <div class="game-tile-status">${game.status} - ${game.platform}</div>
-                    <div class="rating">${'★'.repeat(game.rating)}${'☆'.repeat(5-game.rating)}</div>
-                </div>
-            `;
+            const tile = await buildGameTile(game, true);
             grid.appendChild(tile);
         }
     }
