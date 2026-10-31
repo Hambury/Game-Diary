@@ -900,6 +900,49 @@
     }
     .banner-left .sort-label { min-width: 62px; }
     .games-grid.mode-spineOnly > div[style*="grid-column"] { flex-basis: 100%; }
+    /* Date of release hint */
+    .field-hint { font-size: 13px; color: rgba(255,255,255,0.65); margin-top: 4px; }
+    /* Images at the top right of the Add / Edit form */
+    .form-art-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+    /* Previous / Next on the game page */
+    #gameNavRow { display: none; }
+    .game-art-left #gameNavRow { display: flex; gap: 8px; }
+    #gameNavRow button, #floatingNav button {
+        padding: 6px 12px;
+        background: rgba(255,255,255,0.1);
+        border: 2px solid rgba(255,255,255,0.2);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    #gameNavRow button:hover:not(:disabled), #floatingNav button:hover:not(:disabled) { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.4); }
+    #gameNavRow button:disabled, #floatingNav button:disabled { opacity: 0.4; cursor: default; }
+    #floatingNav {
+        position: fixed;
+        top: calc(12px + env(safe-area-inset-top, 0px));
+        right: 12px;
+        z-index: 900;
+        display: flex;
+        gap: 8px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+    #floatingNav.show { opacity: 1; pointer-events: auto; }
+    #floatingNav button {
+        background: rgba(30, 60, 114, 0.95);
+        border-color: rgba(255,255,255,0.35);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    }
 </style>
 </head>
 <body>
@@ -926,6 +969,7 @@
 <input class="search-input" id="searchInput" oninput="debouncedSearch()" placeholder="Search games or platforms..."/>
 </div>
 <button id="backBtn" onclick="goBack()" style="display:none;">← Back</button>
+<div id="gameNavRow"><button id="prevGameBtn" type="button">← Previous</button><button id="nextGameBtn" type="button">Next →</button></div>
 <div id="breadcrumbNav" style="display:none;">
 <span id="breadcrumbPlatform" onclick="goToPlatform()"></span>
 <span id="breadcrumbGameSep"> &gt; </span>
@@ -944,8 +988,8 @@
         <option value="rating">Rating (High-Low)</option>
         <option value="ratingAsc">Rating (Low-High)</option>
         <option value="status">Status</option>
-        <option value="year">Year (Newest)</option>
-        <option value="yearAsc">Year (Oldest)</option>
+        <option value="year">Release Date (Newest)</option>
+        <option value="yearAsc">Release Date (Oldest)</option>
     </select>
 </div>
 <div class="sort-bar" id="viewBar">
@@ -970,13 +1014,19 @@
 <div class="form-container">
 <h2 id="gameFormTitle">Add New Game</h2>
 <form id="gameForm">
-<div class="form-group form-actions-top"><button class="btn" type="submit">Save</button><button class="btn" onclick="cancelGameForm()" type="button">Cancel</button></div><div class="form-group">
+<div class="form-group form-actions-top"><button class="btn" type="submit">Save</button><button class="btn" onclick="cancelGameForm()" type="button">Cancel</button></div><div class="form-art-row">
+<div class="art-box art-box-cover" id="formArtCover"></div>
+<div class="art-box art-box-spine" id="formArtSpine"></div>
+<div class="art-box art-box-title" id="formArtTitle"></div>
+</div>
+<div class="form-group">
 <label for="gameName">Game Name *</label>
 <input id="gameName" required="" type="text"/>
 </div>
 <div class="form-group">
-<label for="gameYear">Year of Release</label>
-<input id="gameYear" max="2030" min="1970" type="number"/>
+<label for="gameYear">Date of Release</label>
+<input autocomplete="off" id="gameYear" placeholder="1995  or  15/06/1995" type="text"/>
+<div class="field-hint">Enter just a year (1995), a month and year (06/1995) or a full date (15/06/1995).</div>
 </div>
 <div class="form-group">
 <label for="gamePlatform">Platform *</label>
@@ -1335,10 +1385,10 @@
         updateRatingDisplay(0);
         updateBreadcrumb();
     }
-    function showGameEntry(gameId) {
+    function showGameEntry(gameId, replace) {
         const prevScrollY = window.scrollY;
         window.scrollTo(0, 0); // PWA fix: start at the top of the new page
-        if (currentView !== 'gameEntry' || currentGameId !== gameId) {
+        if (!replace && (currentView !== 'gameEntry' || currentGameId !== gameId)) {
             navigationHistory.push({view: currentView, platform: currentPlatform, gameId: currentGameId, scrollY: prevScrollY});
         }
         hideAllViews();
@@ -1615,7 +1665,8 @@
             document.querySelector('.search-container'),
             document.getElementById('backBtn'),
             document.getElementById('sortBar'),
-            document.getElementById('viewBar')
+            document.getElementById('viewBar'),
+            document.getElementById('gameNavRow')
         ];
         const markers = items.map(el => { const m = document.createComment('slot'); el.parentNode.insertBefore(m, el); return m; });
         let currentTarget = null;
@@ -1630,7 +1681,7 @@
                 list = items;
             } else if (!gameView.classList.contains('hidden')) {
                 target = document.getElementById('gameArtLeft');
-                list = items.slice(0, 2);
+                list = [items[0], items[1], items[4]];
             }
             if (target === currentTarget && (!target || list.every(el => el.parentNode === target))) return;
             const input = document.getElementById('searchInput');
@@ -1643,6 +1694,7 @@
             }
             if (hadFocus) { input.focus(); try { input.setSelectionRange(selStart, selEnd); } catch (e) {} }
             layoutPlatformBanner();
+            if (window.updateFloatingControls) updateFloatingControls();
         }
         window.syncControls = sync;
         window.restoreControls = restore;
@@ -1680,6 +1732,73 @@
             saveData();
             renderPlatformBanner();
         }
+    }
+    // --- Release dates: a year on its own, or a full date. 'year' is always kept so older entries still work. ---
+    const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    function parseReleaseInput(text) {
+        const t = (text || '').trim();
+        if (!t) return { ok: true, year: '', releaseDate: '' };
+        let y, m = 0, d = 0, match;
+        if ((match = t.match(/^(\d{4})$/))) { y = +match[1]; }
+        else if ((match = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/))) { d = +match[1]; m = +match[2]; y = +match[3]; }
+        else if ((match = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) { y = +match[1]; m = +match[2]; d = +match[3]; }
+        else if ((match = t.match(/^(\d{1,2})[\/.\-](\d{4})$/))) { m = +match[1]; y = +match[2]; }
+        else if ((match = t.match(/^(\d{4})-(\d{1,2})$/))) { y = +match[1]; m = +match[2]; }
+        else return { ok: false };
+        if (y < 1940 || y > 2100) return { ok: false };
+        if (m && (m < 1 || m > 12)) return { ok: false };
+        if (d) {
+            const dt = new Date(Date.UTC(y, m - 1, d));
+            if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return { ok: false };
+        }
+        const pad = n => String(n).padStart(2, '0');
+        let releaseDate = '';
+        if (d) releaseDate = y + '-' + pad(m) + '-' + pad(d);
+        else if (m) releaseDate = y + '-' + pad(m);
+        return { ok: true, year: String(y), releaseDate };
+    }
+    function releaseDateToInput(game) {
+        const rd = game.releaseDate;
+        if (rd) {
+            const p = rd.split('-');
+            if (p.length === 3) return p[2] + '/' + p[1] + '/' + p[0];
+            if (p.length === 2) return p[1] + '/' + p[0];
+        }
+        return game.year || '';
+    }
+    function formatReleaseDate(game) {
+        const rd = game.releaseDate;
+        if (rd) {
+            const p = rd.split('-').map(Number);
+            if (p.length === 3) return p[2] + ' ' + MONTH_NAMES[p[1] - 1] + ' ' + p[0];
+            if (p.length === 2) return MONTH_NAMES[p[1] - 1] + ' ' + p[0];
+        }
+        return game.year || 'Unknown';
+    }
+    function releaseSortKey(game) {
+        const p = (game.releaseDate || '').split('-').map(Number);
+        const y = p[0] || parseInt(game.year) || 0;
+        return y * 10000 + (p[1] || 0) * 100 + (p[2] || 0);
+    }
+    (function setupReleaseInput() {
+        const input = document.getElementById('gameYear');
+        input.addEventListener('input', () => {
+            input.setCustomValidity(parseReleaseInput(input.value).ok ? '' : 'Enter a year (1995), a month and year (06/1995) or a full date (15/06/1995).');
+        });
+    })();
+    // --- Sorting shared by the platform list and search results ---
+    let lastListIds = []; // order of the list currently on screen, used by the Previous / Next buttons
+    function sortGameList(list) {
+        switch (currentSort) {
+            case 'name': list.sort((a, b) => a.name.localeCompare(b.name)); break;
+            case 'nameDesc': list.sort((a, b) => b.name.localeCompare(a.name)); break;
+            case 'rating': list.sort((a, b) => b.rating - a.rating); break;
+            case 'ratingAsc': list.sort((a, b) => a.rating - b.rating); break;
+            case 'status': list.sort((a, b) => a.status.localeCompare(b.status)); break;
+            case 'year': list.sort((a, b) => releaseSortKey(b) - releaseSortKey(a)); break;
+            case 'yearAsc': list.sort((a, b) => releaseSortKey(a) - releaseSortKey(b)); break;
+        }
+        return list;
     }
     // --- View modes for the game list ---
     const TILE_MODES = ['screenshot', 'boxDetails', 'titleDetails', 'boxOnly', 'titleOnly', 'spineOnly'];
@@ -1790,29 +1909,8 @@
         let platformGames = gameData.games.filter(game => game.platform === currentPlatform);
 
         // Sort logic
-        switch (currentSort) {
-            case 'name':
-                platformGames.sort((a, b) => a.name.localeCompare(b.name));
-                break;
-            case 'nameDesc':
-                platformGames.sort((a, b) => b.name.localeCompare(a.name));
-                break;
-            case 'rating':
-                platformGames.sort((a, b) => b.rating - a.rating);
-                break;
-            case 'ratingAsc':
-                platformGames.sort((a, b) => a.rating - b.rating);
-                break;
-            case 'status':
-                platformGames.sort((a, b) => a.status.localeCompare(b.status));
-                break;
-            case 'year':
-                platformGames.sort((a, b) => (parseInt(b.year) || 0) - (parseInt(a.year) || 0));
-                break;
-            case 'yearAsc':
-                platformGames.sort((a, b) => (parseInt(a.year) || 0) - (parseInt(b.year) || 0));
-                break;
-        }
+        sortGameList(platformGames);
+        lastListIds = platformGames.map(g => g.id);
 
         if (platformGames.length === 0) {
             grid.innerHTML = '<div style="color:#fff;text-align:center;font-size:1.2em;grid-column:1/-1;">No games found.</div>';
@@ -1827,6 +1925,32 @@
         }
         applyPendingScroll(true);
     }
+    // --- Previous / Next game ---
+    function getNavList(game) {
+        let ids = lastListIds.filter(id => gameData.games.some(g => g.id === id));
+        if (!ids.includes(game.id)) {
+            ids = sortGameList(gameData.games.filter(g => g.platform === game.platform)).map(g => g.id);
+        }
+        return ids;
+    }
+    function navigateGame(delta) {
+        const game = gameData.games.find(g => g.id === currentGameId);
+        if (!game) return;
+        const list = getNavList(game);
+        if (list.length < 2) return;
+        const idx = Math.max(0, list.indexOf(game.id));
+        showGameEntry(list[(idx + delta + list.length) % list.length], true);
+    }
+    function updateGameNavButtons() {
+        const game = gameData.games.find(g => g.id === currentGameId);
+        const many = !!game && getNavList(game).length > 1;
+        ['prevGameBtn', 'nextGameBtn', 'floatPrevBtn', 'floatNextBtn'].forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.disabled = !many;
+        });
+    }
+    document.getElementById('prevGameBtn').onclick = () => navigateGame(-1);
+    document.getElementById('nextGameBtn').onclick = () => navigateGame(1);
     // --- Floating Back button ---
     (function setupFloatingBack() {
         const real = document.getElementById('backBtn');
@@ -1837,16 +1961,96 @@
         floating.setAttribute('aria-label', 'Back');
         floating.onclick = () => real.click();
         document.body.appendChild(floating);
+        // Previous / Next float in the top-right corner, side by side
+        const realNav = document.getElementById('gameNavRow');
+        const floatNav = document.createElement('div');
+        floatNav.id = 'floatingNav';
+        floatNav.innerHTML = '<button type="button" id="floatPrevBtn">\u2190 Previous</button><button type="button" id="floatNextBtn">Next \u2192</button>';
+        document.body.appendChild(floatNav);
+        document.getElementById('floatPrevBtn').onclick = () => navigateGame(-1);
+        document.getElementById('floatNextBtn').onclick = () => navigateGame(1);
         function update() {
             const shown = real.offsetParent !== null; // false while the real button is hidden (home page)
             const scrolledPast = shown && real.getBoundingClientRect().bottom < 0;
             floating.classList.toggle('show', scrolledPast);
+            const navShown = realNav.offsetParent !== null; // only visible on game pages
+            floatNav.classList.toggle('show', navShown && realNav.getBoundingClientRect().bottom < 0);
         }
+        window.updateFloatingControls = update;
         window.addEventListener('scroll', update, { passive: true });
         window.addEventListener('resize', update);
         new MutationObserver(update).observe(real, { attributes: true, attributeFilter: ['style'] });
         update();
     })();
+    // --- Game box / spine / title screen on the Add and Edit form ---
+    let formArt = { boxArt: null, boxSpine: null, titleScreen: null };
+    const formArtUrls = { boxArt: '', boxSpine: '', titleScreen: '' };
+    const formArtBoxIds = { boxArt: 'formArtCover', boxSpine: 'formArtSpine', titleScreen: 'formArtTitle' };
+    let formArtToken = 0;
+    async function renderFormArt() {
+        const token = ++formArtToken;
+        for (const field of Object.keys(formArtBoxIds)) {
+            const cfg = gameArtConfig[field];
+            const box = document.getElementById(formArtBoxIds[field]);
+            if (!box) continue;
+            enableGameArtDrop(box, field, uploadFormArt);
+            let blob = null;
+            if (formArt[field]) {
+                try { blob = await imageStorage.getBlob('platformIcons', formArt[field]); } catch (e) { blob = null; }
+            }
+            if (token !== formArtToken) return; // a newer render has taken over
+            if (formArtUrls[field]) { URL.revokeObjectURL(formArtUrls[field]); formArtUrls[field] = ''; }
+            box.innerHTML = '';
+            if (blob) {
+                formArtUrls[field] = URL.createObjectURL(blob);
+                box.className = 'art-box art-box-' + cfg.cls;
+                box.onclick = null;
+                const img = document.createElement('img');
+                img.src = formArtUrls[field];
+                img.alt = cfg.label;
+                img.style.cursor = 'zoom-in';
+                img.onclick = () => enlargeScreenshot(formArtUrls[field]);
+                box.appendChild(img);
+                const controls = document.createElement('div');
+                controls.className = 'banner-controls';
+                const edit = document.createElement('button');
+                edit.type = 'button';
+                edit.textContent = '\u270E';
+                edit.title = 'Change ' + cfg.label;
+                edit.setAttribute('aria-label', 'Change ' + cfg.label);
+                edit.onclick = e => { e.stopPropagation(); pickFormArt(field); };
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.textContent = '\u2715';
+                del.title = 'Remove ' + cfg.label;
+                del.setAttribute('aria-label', 'Remove ' + cfg.label);
+                del.onclick = e => { e.stopPropagation(); formArt[field] = null; renderFormArt(); };
+                controls.appendChild(edit);
+                controls.appendChild(del);
+                box.appendChild(controls);
+            } else {
+                box.className = 'art-box art-box-' + cfg.cls + ' empty';
+                box.textContent = cfg.emptyText;
+                box.onclick = () => pickFormArt(field);
+            }
+        }
+    }
+    function pickFormArt(field) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = event => uploadFormArt(field, event.target.files[0]);
+        input.click();
+    }
+    async function uploadFormArt(field, file) {
+        if (!file) return;
+        try {
+            formArt[field] = await imageStorage.saveBlob('platformIcons', file);
+            renderFormArt();
+        } catch (error) {
+            alert('Error uploading image: ' + error.message);
+        }
+    }
     // --- Game page images: box art (left) and title screen (right), above the info bar ---
     const gameArtUrls = { boxArt: '', titleScreen: '' };
     const gameArtConfig = {
@@ -1924,7 +2128,7 @@
     function dragHasFiles(e) {
         return !!(e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files'));
     }
-    function enableGameArtDrop(box, field) {
+    function enableGameArtDrop(box, field, handler) {
         box.ondragenter = box.ondragover = e => {
             if (!dragHasFiles(e)) return;
             e.preventDefault();
@@ -1939,13 +2143,14 @@
             e.preventDefault();
             box.classList.remove('drag-over');
             const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
-            if (file) uploadGameArt(field, file);
+            if (file) (handler || uploadGameArt)(field, file);
             else alert('Please drop an image file.');
         };
     }
     // Stop a file dropped outside a box from navigating the app away to the image
     document.addEventListener('dragover', e => {
-        if (dragHasFiles(e) && !e.target.closest('.art-box')) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; }
+        // Only block drops that nothing on the page has accepted (the screenshot area and image boxes accept their own)
+        if (dragHasFiles(e) && !e.defaultPrevented) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; }
     });
     document.addEventListener('drop', e => { if (dragHasFiles(e)) e.preventDefault(); });
     function removeGameArt(field) {
@@ -1986,8 +2191,8 @@
                     <span class="meta-value">${game.platform}</span>
                 </div>
                 <div class="meta-item">
-                    <span class="meta-label">Year</span>
-                    <span class="meta-value">${game.year || 'Unknown'}</span>
+                    <span class="meta-label">Release Date</span>
+                    <span class="meta-value">${formatReleaseDate(game)}</span>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Status</span>
@@ -2002,6 +2207,8 @@
             ${screenshotsHtml}
         `;
         if (window.syncControls) syncControls();
+        updateGameNavButtons();
+        if (window.updateFloatingControls) updateFloatingControls();
         renderGameArt();
     }
     // Screenshot enlarge function
@@ -2044,6 +2251,9 @@
         updateRatingDisplay(0);
         screenshots = [];
         mainImageIndex = 0;
+        formArt = { boxArt: null, boxSpine: null, titleScreen: null };
+        renderFormArt();
+        document.getElementById('gameYear').setCustomValidity('');
         document.getElementById('screenshotsGrid').innerHTML = '';
         document.getElementById('progressBar').style.display = 'none';
         document.getElementById('compressionStats').style.display = 'none';
@@ -2175,10 +2385,16 @@
     // --- Form submission ---
     document.getElementById('gameForm').addEventListener('submit', function(e) {
         e.preventDefault();
+        const releaseParsed = parseReleaseInput(document.getElementById('gameYear').value);
+        if (!releaseParsed.ok) { alert('Please enter the release date as a year (1995), month and year (06/1995) or full date (15/06/1995).'); return; }
         const formData = {
             id: editingGameId || Date.now(),
             name: document.getElementById('gameName').value,
-            year: document.getElementById('gameYear').value,
+            year: releaseParsed.year,
+            releaseDate: releaseParsed.releaseDate,
+            boxArt: formArt.boxArt,
+            boxSpine: formArt.boxSpine,
+            titleScreen: formArt.titleScreen,
             platform: document.getElementById('gamePlatform').value,
             status: document.getElementById('gameStatus').value,
             rating: parseInt(document.getElementById('gameRating').value),
@@ -2212,7 +2428,10 @@
         currentView = 'gameForm';
         editingGameId = currentGameId;
         document.getElementById('gameName').value = game.name;
-        document.getElementById('gameYear').value = game.year || '';
+        document.getElementById('gameYear').value = releaseDateToInput(game);
+        document.getElementById('gameYear').setCustomValidity('');
+        formArt = { boxArt: game.boxArt || null, boxSpine: game.boxSpine || null, titleScreen: game.titleScreen || null };
+        renderFormArt();
         document.getElementById('gamePlatform').value = game.platform;
         document.getElementById('gameStatus').value = game.status;
         document.getElementById('gameRating').value = game.rating;
@@ -2317,29 +2536,8 @@
         );
 
         // Sort filtered games according to currentSort
-        switch (currentSort) {
-            case 'name':
-                filteredGames.sort((a, b) => a.name.localeCompare(b.name));
-                break;
-            case 'nameDesc':
-                filteredGames.sort((a, b) => b.name.localeCompare(a.name));
-                break;
-            case 'rating':
-                filteredGames.sort((a, b) => b.rating - a.rating);
-                break;
-            case 'ratingAsc':
-                filteredGames.sort((a, b) => a.rating - b.rating);
-                break;
-            case 'status':
-                filteredGames.sort((a, b) => a.status.localeCompare(b.status));
-                break;
-            case 'year':
-                filteredGames.sort((a, b) => (parseInt(b.year) || 0) - (parseInt(a.year) || 0));
-                break;
-            case 'yearAsc':
-                filteredGames.sort((a, b) => (parseInt(a.year) || 0) - (parseInt(b.year) || 0));
-                break;
-        }
+        sortGameList(filteredGames);
+        lastListIds = filteredGames.map(g => g.id);
 
         // Render filtered games
         const grid = document.getElementById('gamesGrid');

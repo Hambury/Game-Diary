@@ -1,6 +1,6 @@
 // Game Diary service worker: lets the app load offline.
 // Bump CACHE_VERSION whenever you change index.html to be sure old copies are replaced.
-const CACHE_VERSION = 'game-diary-v12';
+const CACHE_VERSION = 'game-diary-v13';
 const LOCAL_FILES = ['./', './index.html', './manifest.webmanifest',
                      './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 const JSZIP_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
